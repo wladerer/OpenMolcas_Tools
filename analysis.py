@@ -2,6 +2,9 @@ import pandas as pd
 import re
 
 
+l_map = {'s': 0, 'p': 1, 'd': 2, 'f': 3, 'g':4, 'h':5}
+l_pam = {0: 's', 1: 'p', 2: 'd', 3: 'f', 4: 'g', 5: 'h'}
+
 def open_file(filename) -> list:
     """Open the file and return the data as a list of strings."""
     with open(filename, 'r') as f:
@@ -229,9 +232,37 @@ class MolecularManifold:
         return f'Molecular Manifold with {len(self.mos)} molecular orbitals'
     
 
-manifold = MolecularManifold('natural_orbitals.txt')
-print(manifold.occupation)
+    def to_dataframe(self):
+        ''' Returns a pandas dataframe with the molecular orbitals '''
 
+        #create a dataframe with the energies and occupations
+        df = pd.DataFrame({'Energy': self.energies, 'Occupation': [mo.occupation for mo in self.mos]})
 
+        s_character = []
+        p_character = []
+        d_character = []
+        f_character = []
+        g_character = []
+        h_character = []
+        for mo in self.mos:
+            orbital_character_dict = {'s': 0, 'p': 0, 'd': 0, 'f': 0, 'g':0 , 'h': 0 }
+            #get the largest n value of the mo
+            n_max = max(mo.composition.keys())
+            composition_dict = mo.composition[n_max]
+            for l in composition_dict.keys():
+                orbital_character_dict[l_pam[l]] = composition_dict[l]
+            s_character.append(orbital_character_dict['s'])
+            p_character.append(orbital_character_dict['p'])
+            d_character.append(orbital_character_dict['d'])
+            f_character.append(orbital_character_dict['f'])
+            g_character.append(orbital_character_dict['g'])
+            h_character.append(orbital_character_dict['h'])
 
+        df['s'] = s_character
+        df['p'] = p_character
+        df['d'] = d_character
+        df['f'] = f_character
+        df['g'] = g_character
+        df['h'] = h_character
 
+        return df 
