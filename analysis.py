@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-from dictionaries import l_map, l_pam
+from dictionaries import l_map, l_pam, orbital_counts
 
 
 def open_file(filename) -> list:
@@ -137,8 +137,8 @@ class molecularOrbital:
     def __init__(self, mo):
         self.mo = mo
         self.index = mo[0]
-        self.energy = mo[1]
-        self.occupation = mo[2]
+        self.energy = float(mo[1])
+        self.occupation = float(mo[2])
         self.coefficients = self.get_coefficents(mo)
         self.composition = self.get_composition(by_l=True)
         self.elemental_composition = self.get_elemental_composition()
@@ -272,3 +272,29 @@ class MolecularManifold:
         df[['s', 'p', 'd', 'f', 'g', 'h']] = df_subset
         
         return df
+
+    def active_space_indices(self, l_real: str, l_virtual: int = None):
+        ''' Returns the indices of the active space orbitals '''
+
+        l_real = l_real.lower()
+        N_real_orbitals = l_map[l_real]
+        N_virtual_orbitals = 0
+        if l_virtual is not None:
+            l_virtual = l_virtual.lower()
+            N_virtual_orbitals += l_map[l_virtual]
+
+        #the real orbitals span [homo_index - N_real_orbitals, homo_index]
+
+        #the virtual orbitals span [homo_index + 1 , homo_index + N_virtual_orbitals]
+       
+        if l_virtual == None:
+
+            return list(range(self.homo_index + 1 - N_real_orbitals, self.homo_index + 1))
+
+        else:
+
+            return range(self.homo_index - N_real_orbitals, self.homo_index + N_virtual_orbitals)
+
+
+
+                
