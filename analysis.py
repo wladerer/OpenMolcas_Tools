@@ -3,7 +3,7 @@ import re
 from dictionaries import l_map, l_pam, orbital_counts
 
 
-def open_file(filename) -> list:
+def open_file(filename) -> list[str]:
     """Open the file and return the data as a list of strings."""
     with open(filename, 'r') as f:
         data = f.readlines()
@@ -44,7 +44,7 @@ def split_file(filename):
             f.writelines(data)
 
 
-def separate_mos(data):
+def separate_scf_mos(data: list[str]):
     '''Seperate the data into a list of strings'''
 
     # data is currently a list of strings, but we want it to be a single string
@@ -58,6 +58,16 @@ def separate_mos(data):
 
     return mos
 
+def seperate_ras_mos(data: list[str]):
+    '''Seperate the data into a list of strings'''
+
+    data = ''.join(data)
+
+    mos = re.split(r'^\s*\d+\s+[-\d]+\.\d+\s+\d+\.\d+', data, flags=re.MULTILINE)
+
+    mos = mos[1:-1]
+
+    return mos
 
 def format_mo(mo):
     '''Clean a single mo and return a dictionary of the data'''
@@ -85,13 +95,22 @@ def format_mo(mo):
 
 def get_mos(file: str) -> list:
     data = open_file(file)
-    mos = separate_mos(data)
+
+    #there are two types of mos, ras and scf and there is a different function for each
+    #we cannot determine which type of mos we have, so we try both
+    try:
+        mos = separate_scf_mos(data)
+    except:
+        mos = seperate_ras_mos(data)
+
+    # format the mos
     mos = [format_mo(mo) for mo in mos]
 
     # remove empty lists
     mos = [mo for mo in mos if mo != []]
 
     return mos
+
 
 
 class Coefficient:
