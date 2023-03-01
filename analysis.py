@@ -43,6 +43,33 @@ def split_file(filename):
         with open(f'{titles[i]}', 'w') as f:
             f.writelines(data)
 
+def split_ras_file(filename: str):
+    '''Split ras orbitals data into multiple files'''
+    data = open_file(filename)
+    # join the data into a single string
+    data = ''.join(data)
+    # the delimiter is --
+    data = data.split('--')
+
+    #keep only data[-2]
+    data = data[-2]
+
+    #remove the first line
+    data = data[1:]
+
+    #write the data to a file
+    with open('ras_orbitals.txt', 'w') as f:
+        f.write(data)
+
+    # replace the first instance of '1-(?=\d)' with '1 -'
+    with open('ras_orbitals.txt', 'r') as f:
+        data = f.read()
+    data = re.sub(r'1-(?=\d)', '1 -', data)
+    with open('ras_orbitals.txt', 'w') as f:
+        f.write(data)
+
+
+        
 
 def separate_scf_mos(data: list[str]):
     '''Seperate the data into a list of strings'''
@@ -63,9 +90,13 @@ def seperate_ras_mos(data: list[str]):
 
     data = ''.join(data)
 
-    mos = re.split(r'^\s*\d+\s+[-\d]+\.\d+\s+\d+\.\d+', data, flags=re.MULTILINE)
+    mos = re.split(r'(^\s*\d+\s+[-\d]+\.\d+\s+\d+\.\d+)', data, flags=re.MULTILINE)
+    
+    # remove the first element of the list
+    mos = mos[1:]
 
-    mos = mos[1:-1]
+    #fuse n and n+1 elements of the list
+    mos = [f'{mos[i]} {mos[i+1]}' for i in range(0, len(mos)-1, 2)]
 
     return mos
 
@@ -97,12 +128,15 @@ def get_mos(file: str) -> list:
     data = open_file(file)
 
     #there are two types of mos, ras and scf and there is a different function for each
-    #we cannot determine which type of mos we have, so we try both
-    try:
-        mos = separate_scf_mos(data)
-    except:
+    #The header of the ras mos is INDEX  ENERGY  OCCUPATION COEFFICIENTS ...
+    #The header of the scf mos is Index Energy  Occupation Coefficients ...
+    #check the header of the file to determine which function to use
+    if 'INDEX' in data[0]:
         mos = seperate_ras_mos(data)
-
+    elif 'Index' in data[0]:
+        mos = separate_scf_mos(data)
+    else:
+        raise Exception('ERROR: File not formatted correctly')
     # format the mos
     mos = [format_mo(mo) for mo in mos]
 
