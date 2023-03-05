@@ -1,6 +1,7 @@
 import pandas as pd
 import re
 from dictionaries import l_map, l_pam, orbital_counts
+import numpy as np
 
 
 def open_file(filename) -> list[str]:
@@ -170,8 +171,12 @@ class Coefficient:
     def get_n(self):
 
         # the n value is the first character of the ao_type
-        n = int(self.ao_type[0])
-
+        try:
+            n = int(self.ao_type[0])
+        except ValueError:
+            print(f'Diagnostics: {self.ao_type} is {type(self.ao_type)}')
+            print(f'Diagnostics: ao index {self.ao_index}')
+            print('ERROR: ao_type is not formatted correctly')
         return n
 
     def get_l(self):
@@ -195,6 +200,7 @@ class molecularOrbital:
         self.coefficients = self.get_coefficents(mo)
         self.composition = self.get_composition(by_l=True)
         self.elemental_composition = self.get_elemental_composition()
+        self.active_space = None
 
     def get_coefficents(self, mo):
 
@@ -260,6 +266,9 @@ class molecularOrbital:
     def __str__(self):
 
         return f'Orbital {self.index} with energy {self.energy} and occupation {self.occupation}'
+    
+    def set_active_space(self, active_space: list[int]):
+        self.active_space = active_space
 
 
 class MolecularManifold:
@@ -271,27 +280,16 @@ class MolecularManifold:
         self.energies = [float(mo.energy) for mo in self.mos]
         self.coefficients = [mo.coefficients for mo in self.mos]
         self.homo, self.homo_index = self.get_homo()
-        self.lumo, self.lumo_index = self.get_lumo()
+        self.lumo, self.lumo_index = self.mos[self.homo_index + 1], self.homo_index + 1
         # self.occupation is the total of the occupation of the orbitals
         self.occupation = sum([float(mo.occupation) for mo in self.mos])
 
     def get_homo(self):
 
-        # the homo is the orbital that is the least negative in energy, but still negative
-        # find the least negative energy
-        homo_index = self.energies.index(
-            max([energy for energy in self.energies if energy < 0]))
+        # get the index of the molecular orbital with the highest index and occupation > 0
+        homo_index = max([i for i, mo in enumerate(self.mos) if mo.occupation > 0])
 
         return self.mos[homo_index], homo_index
-
-    def get_lumo(self):
-
-        # the lumo is the orbital that is the most positive in energy, but still positive
-        # find the most positive energy
-        lumo_index = self.energies.index(
-            min([energy for energy in self.energies if energy > 0]))
-
-        return self.mos[lumo_index], lumo_index
 
     def __str__(self):
         return f'Molecular Manifold with {len(self.mos)} molecular orbitals'
@@ -326,28 +324,32 @@ class MolecularManifold:
         
         return df
 
-    def active_space_indices(self, l_real: str, l_virtual: int = None):
+    def active_space_indices(self, active_space_orbitals: list[str]) -> list[int]:
         ''' Returns the indices of the active space orbitals '''
 
-        l_real = l_real.lower()
-        N_real_orbitals = l_map[l_real]
-        N_virtual_orbitals = 0
-        if l_virtual is not None:
-            l_virtual = l_virtual.lower()
-            N_virtual_orbitals += l_map[l_virtual]
+        #each element in the array is the n and l of the orbital
+        #regex for a single letter is 
+        active_space_orbitals = [re.findall(r'[a-z]', orbital)[0] for orbital in active_space_orbitals]
+        
+        #map the letter to the number of orbitals
+        n_orbitals = sum([orbital_counts[orbital] for orbital in active_space_orbitals])
 
-        #the real orbitals span [homo_index - N_real_orbitals, homo_index]
+        #return a list that goes from homo_index - n_orbitals to homo_index, incremented by 1
+        indices = np.arange(self.homo_index + 1 - n_orbitals, self.homo_index + 1, 1)
 
-        #the virtual orbitals span [homo_index + 1 , homo_index + N_virtual_orbitals]
-       
-        if l_virtual == None:
+        return indices
+    
+    def active_space_composition(self, active_space_indices: list[int]):
+        '''Returns the orbital composition of the active space indices'''
+        
+        dataframe = self.to_dataframe()
+        active_space_orbitals = dataframe.iloc[active_space_indices]
+        #sum the composition of the orbitals and report it as a percentage of s, p, d, f, g, h
+        active_space_composition = active_space_orbitals[['s', 'p', 'd', 'f', 'g', 'h']].sum()
+        active_space_composition = active_space_composition/active_space_composition.sum()
 
-            return list(range(self.homo_index + 1 - N_real_orbitals, self.homo_index + 1))
-
-        else:
-
-            return range(self.homo_index - N_real_orbitals, self.homo_index + N_virtual_orbitals)
+        return active_space_composition
 
 
 
-                
+
