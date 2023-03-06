@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import pandas as pd
 import re
 from dictionaries import l_map, l_pam, orbital_counts
@@ -12,11 +13,22 @@ def open_file(filename) -> list[str]:
 
 
 def get_orbitals(filename: str):
-    ''' Createw a orbitals.txt file which contains alpha, beta, and natural orbitals'''
+    ''' Create an orbitals.txt file which contains alpha, beta, and natural orbitals'''
     import os
-    os.system(
-        f'cat {filename} | sed -n \'/Index Energy  Occupation Coefficients/,/--/p\' >> orbitals.txt')
-    print('Orbitals saved to orbitals.txt')
+    data = open_file(filename)[:100]
+    data = ''.join(data)
+    if 'Index' in data:
+        new_filename = 'scf_orbitals.txt'
+        os.system(
+            f'cat {filename} | sed -n \'/Index Energy  Occupation Coefficients/,/--/p\' > {new_filename}')
+    elif 'INDEX' in data:
+        new_filename = 'ras_orbitals.txt'
+        os.system(
+            f'cat {filename} | sed -n \'/INDEX  ENERGY  OCCUPATION COEFFICIENTS/,/--/p\' > {new_filename}')
+    else:
+        raise Exception('ERROR: File not formatted correctly')
+    
+    print(f'Orbitals saved to {new_filename}')
 
 
 def split_file(filename):
@@ -43,6 +55,7 @@ def split_file(filename):
         data = data[1:]
         with open(f'{titles[i]}', 'w') as f:
             f.writelines(data)
+    
 
 def split_ras_file(filename: str):
     '''Split ras orbitals data into multiple files'''
@@ -69,8 +82,6 @@ def split_ras_file(filename: str):
     with open('ras_orbitals.txt', 'w') as f:
         f.write(data)
 
-
-        
 
 def separate_scf_mos(data: list[str]):
     '''Seperate the data into a list of strings'''
@@ -146,6 +157,16 @@ def get_mos(file: str) -> list:
 
     return mos
 
+def prep_molcas_output(molcas_log_file: str, is_ras: bool = False):
+    '''Prepare the molcas output file for parsing'''
+    
+    if is_ras:
+        split_ras_file(molcas_log_file)
+        new_file = 'ras_orbitals.txt'
+    else:
+        split_file(molcas_log_file)
+
+    get_mos(new_file)
 
 
 class Coefficient:
@@ -155,11 +176,11 @@ class Coefficient:
 
     def __init__(self, coeff: tuple):
 
-        self.ao_index = coeff[0]
-        self.atom_type = coeff[1]
-        self.ao_type = coeff[2]
-        self.value = float(coeff[3])
-        self.n = self.get_n()
+        self.ao_index: int = coeff[0]
+        self.atom_type: str = coeff[1]
+        self.ao_type: str = coeff[2]
+        self.value: float = float(coeff[3])
+        self.n: int = self.get_n()
         self.l_int, self.l_sym = self.get_l()
 
     def __str__(self):
@@ -189,6 +210,12 @@ class Coefficient:
 
         return l_int, l_sym
 
+def l_resolved(coefficient: Coefficient):
+    #get the l value of the coefficient
+    l_sym = coefficient.l_sym
+    #get the value of the coefficient
+    value = coefficient.value
+    return (l_sym, value**2)
 
 class molecularOrbital:
 
@@ -198,7 +225,9 @@ class molecularOrbital:
         self.energy = float(mo[1])
         self.occupation = float(mo[2])
         self.coefficients = self.get_coefficents(mo)
-        self.composition = self.get_composition(by_l=True)
+        self.l_resolved_coefficients = [l_resolved(coeff) for coeff in self.coefficients]
+        self.l_composition = self.get_l_composition()
+        self.composition = self.get_composition()
         self.elemental_composition = self.get_elemental_composition()
         self.active_space = None
 
@@ -214,37 +243,30 @@ class molecularOrbital:
 
         return coefficients
 
-    def get_composition(self, by_l: bool = False):
+    def get_composition(self):
         '''Calculates the percentage of orbital composition by n '''
 
-        if by_l:
+        # create a tuple of coeff.n and coeff.value^2
+        composition = [(coeff.n, coeff.value**2)
+                        for coeff in self.coefficients]
 
-            # create a tuple of coeff.n , coeff.l_int and coeff.value^2
-            composition = [(coeff.n, coeff.l_int, coeff.value**2)
-                           for coeff in self.coefficients]
+        # sort the tuple by n
+        composition = sorted(composition, key=lambda x: x[0])
 
-            # sort the tuple by n and l_int
-            composition = sorted(composition, key=lambda x: (x[0], x[1]))
+        # create a dictionary of n and the sum of the squared values
+        composition = {n: sum([x[1] for x in composition if x[0] == n]) for n in range(
+            1, max([x[0] for x in composition]) + 1)}
 
-            # sum the squared values of matching n and l_int
-            composition = {n: {l: sum([x[2] for x in composition if x[0] == n and x[1] == l]) for l in range(
-                0, max([x[1] for x in composition]) + 1)} for n in range(1, max([x[0] for x in composition]) + 1)}
+        return composition
+    
+    def get_l_composition(self):
+        '''Calculates the percentage of orbital composition by l '''
+        l_dict = {'s': 0, 'p': 0, 'd': 0, 'f': 0, 'g': 0, 'h': 0}
+        l_resolved_ao: tuple = self.l_resolved_coefficients
+        for ao in l_resolved_ao:
+            l_dict[ao[0]] += ao[1]
 
-            return composition
-
-        else:
-            # create a tuple of coeff.n and coeff.value^2
-            composition = [(coeff.n, coeff.value**2)
-                           for coeff in self.coefficients]
-
-            # sort the tuple by n
-            composition = sorted(composition, key=lambda x: x[0])
-
-            # create a dictionary of n and the sum of the squared values
-            composition = {n: sum([x[1] for x in composition if x[0] == n]) for n in range(
-                1, max([x[0] for x in composition]) + 1)}
-
-            return composition
+        return l_dict
 
     def get_elemental_composition(self):
 
@@ -271,6 +293,7 @@ class molecularOrbital:
         self.active_space = active_space
 
 
+
 class MolecularManifold:
 
     def __init__(self, file):
@@ -294,33 +317,43 @@ class MolecularManifold:
     def __str__(self):
         return f'Molecular Manifold with {len(self.mos)} molecular orbitals'
 
-    def to_dataframe(self):
+    def to_dataframe(self, ingore_n: bool = True):
         ''' Returns a pandas dataframe with the molecular orbitals '''
 
         # create a dataframe with the energies and occupations
         df = pd.DataFrame({'Energy': self.energies, 'Occupation': [
                           mo.occupation for mo in self.mos]})
 
-        
-        for mo in self.mos: 
-            orbital_character_dict = {'s': 0, 'p': 0, 'd': 0, 'f': 0, 'g': 0, 'h': 0}
-            n_max = max(mo.composition.keys())
-            for l in mo.composition[n_max].keys():
-                orbital_character_dict[l_pam[l]] = mo.composition[n_max][l]
+        if ingore_n:
+            for mo in self.mos: 
+                orbital_character_dict = {'s': 0, 'p': 0, 'd': 0, 'f': 0, 'g': 0, 'h': 0}
+                n_max = max(mo.composition.keys())
+                for l in mo.composition[n_max].keys():
+                    orbital_character_dict[l_pam[l]] = mo.composition[n_max][l]
 
-        for i in orbital_character_dict.keys():
-            df[i] = 0 
-        
-        for i, mo in enumerate(self.mos):
-            n_max = max(mo.composition.keys())
-            for l in mo.composition[n_max].keys():
-                df.loc[i, l_pam[l]] = mo.composition[n_max][l]
+            for i in orbital_character_dict.keys():
+                df[i] = 0 
+            
+            for i, mo in enumerate(self.mos):
+                n_max = max(mo.composition.keys())
+                for l in mo.composition[n_max].keys():
+                    df.loc[i, l_pam[l]] = mo.composition[n_max][l]
 
-        df_subset = df[['s', 'p', 'd', 'f', 'g', 'h']]
-        df_subset = df_subset.div(df_subset.sum(axis=1), axis=0)
-        #set precision to 3rd decimal
-        df_subset = df_subset.round(3)
-        df[['s', 'p', 'd', 'f', 'g', 'h']] = df_subset
+            df_subset = df[['s', 'p', 'd', 'f', 'g', 'h']]
+            df_subset = df_subset.div(df_subset.sum(axis=1), axis=0)
+            #set precision to 3rd decimal
+            df_subset = df_subset.round(3)
+            df[['s', 'p', 'd', 'f', 'g', 'h']] = df_subset
+        
+        else:
+            
+            composition_dicts = [mo.l_composition for mo in self.mos]
+            df = pd.concat([df, pd.DataFrame(composition_dicts)], axis=1)
+            df_subset = df[['s', 'p', 'd', 'f', 'g', 'h']]
+            #noramalize each row to 1
+            df_subset = df_subset.div(df_subset.sum(axis=1), axis=0)
+            #set precision to 3rd decimal
+            df = df_subset.round(3)
         
         return df
 
